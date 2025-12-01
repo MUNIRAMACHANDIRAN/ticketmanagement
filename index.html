@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ticket Management UI</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- SheetJS -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+  <!-- jsPDF + html2canvas -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#f7f9fb; --card:#fff; --text:#222;
+    }
+    [data-theme="dark"] { --bg:#0f1720; --card:#111421; --text:#e6eef8; }
+    body { background:var(--bg); color:var(--text); }
+    .card { background:var(--card); }
+    .pointer{ cursor:pointer; }
+    .table-wrap{ max-height:420px; overflow:auto; }
+    .muted { color:#6c757d; font-size:.9rem; }
+    .top-actions .btn { margin-left:6px; }
+    .small-badge { font-size:.75rem; padding:.25rem .5rem; border-radius:.25rem; }
+  </style>
+</head>
+<body>
+
+<div class="container py-3">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h3 class="m-0">Ticket Management</h3>
+    <div>
+      <button id="themeToggle" class="btn btn-outline-secondary btn-sm">Dark</button>
+      <button id="loginBtn" class="btn btn-outline-primary btn-sm">Login</button>
+      <button id="logoutBtn" class="btn btn-outline-danger btn-sm d-none">Logout</button>
+      <button id="addBtn" class="btn btn-primary btn-sm">Add Ticket</button>
+    </div>
+  </div>
+
+  <div class="card p-3 mb-3">
+    <div class="row g-2 align-items-center">
+      <div class="col-md-4">
+        <input id="search" class="form-control" placeholder="Search tickets (any field)...
+">
+      </div>
+      <div class="col-md-5">
+        <select id="filterEngineer" class="form-select d-inline-block" style="width:40%;">
+          <option value="">All Engineers</option>
+        </select>
+        <select id="filterStatus" class="form-select d-inline-block ms-2" style="width:40%;">
+          <option value="">All Status</option>
+          <option>In-Progress</option>
+          <option>On-Hold</option>
+          <option>Resolved</option>
+          <option>Forward</option>
+          <option>Completed</option>
+        </select>
+        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="clearFilters()">Clear</button>
+      </div>
+      <div class="col-md-3 text-end top-actions">
+        <select id="pageSize" class="form-select d-inline-block" style="width:80px;">
+          <option value="5">5</option>
+          <option value="10" selected>10</option>
+          <option value="25">25</option>
+        </select>
+        <button class="btn btn-sm btn-success" onclick="exportExcel()">Export Excel</button>
+        <button class="btn btn-sm btn-info" onclick="exportPDF()">Export PDF</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="refresh()">Refresh</button>
+      </div>
+    </div>
+
+    <div class="mt-3 small muted">
+      Total: <span id="totalCount">0</span>
+      &nbsp; • In-Progress: <span id="countInProgress">0</span>
+      &nbsp; • On-Hold: <span id="countOnHold">0</span>
+      &nbsp; • Resolved: <span id="countResolved">0</span>
+      &nbsp; • Forward: <span id="countForward">0</span>
+      &nbsp; • Completed: <span id="countCompleted">0</span>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="table-wrap p-0">
+      <table class="table table-sm table-striped mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>Sl</th>
+            <th class="pointer" onclick="sortBy('reqDate')">Request Date</th>
+            <th class="pointer" onclick="sortBy('ticketId')">Ticket ID</th>
+            <th>User</th>
+            <th>Issue</th>
+            <th class="pointer" onclick="sortBy('engineer')">Engineer</th>
+            <th class="pointer" onclick="sortBy('status')">Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+    <nav class="p-2">
+      <ul id="pagination" class="pagination pagination-sm justify-content-center mb-0"></ul>
+    </nav>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="card p-3">
+        <h6 class="mb-3">Status Distribution</h6>
+        <canvas id="statusChart" height="160"></canvas>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card p-3">
+        <h6 class="mb-3">Engineer Load</h6>
+        <canvas id="engineerChart" height="160"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modals -->
+<!-- Login Modal -->
+<div class="modal fade" id="loginModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <form id="loginForm" class="modal-content" onsubmit="return doLogin(event)">
+      <div class="modal-header"><h5 class="modal-title">Sign In</h5></div>
+      <div class="modal-body">
+        <div class="mb-2"><input id="loginEmail" class="form-control" placeholder="Email" required></div>
+        <div class="mb-2"><input id="loginPass" type="password" class="form-control" placeholder="Password" required></div>
+        <div class="text-muted small">Demo users: admin@demo.com / password</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary">Login</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Ticket Modal -->
+<div class="modal fade" id="ticketModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form id="ticketForm" class="modal-content" onsubmit="return saveTicket(event)">
+      <div class="modal-header"><h5 class="modal-title" id="ticketModalTitle">Add Ticket</h5></div>
+      <div class="modal-body">
+        <input id="editId" type="hidden">
+        <div class="mb-2"><label class="form-label">Request Date</label><input id="reqDate" type="date" class="form-control" required></div>
+        <div class="mb-2"><label>Ticket ID</label><input id="ticketId" class="form-control" required></div>
+        <div class="mb-2"><label>User Name</label><input id="userName" class="form-control" required></div>
+        <div class="mb-2"><label>Issue</label><input id="issue" class="form-control" required></div>
+        <div class="mb-2"><label>Assign Engineer</label><input id="engineer" class="form-control" required></div>
+        <div class="mb-2"><label>Status</label>
+          <select id="status" class="form-select" required>
+            <option>In-Progress</option>
+            <option>On-Hold</option>
+            <option>Resolved</option>
+            <option>Forward</option>
+            <option>Completed</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-success">Save</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+/* =========================
+   CONFIG - change if needed
+   ========================= */
+const API_BASE = 'http://localhost:8080/api'; // backend base (assumes frontend file opened from same host or proxy). Use 'http://localhost:8080/api' if opening file locally.
+let tickets = [];
+let currentPage = 1;
+let pageSize = parseInt(document.getElementById('pageSize').value);
+let sortField = null, sortDir = 1;
+let statusChart=null, engineerChart=null;
+
+/* =========================
+   UTIL: auth fetch
+   ========================= */
+function authFetch(path, opts={}) {
+  opts.headers = opts.headers || {};
+  opts.headers['Content-Type'] = opts.headers['Content-Type'] || 'application/json';
+  const token = localStorage.getItem('tm_token');
+  if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+  return fetch(API_BASE + path, opts);
+}
+
+/* =========================
+   INIT
+   ========================= */
+document.getElementById('search').addEventListener('input', ()=>{ currentPage=1; render(); });
+document.getElementById('pageSize').addEventListener('change', ()=>{ pageSize = +document.getElementById('pageSize').value; currentPage=1; render(); });
+document.getElementById('filterEngineer').addEventListener('change', ()=>{ currentPage=1; render(); });
+document.getElementById('filterStatus').addEventListener('change', ()=>{ currentPage=1; render(); });
+
+document.getElementById('loginBtn').addEventListener('click', ()=> new bootstrap.Modal(document.getElementById('loginModal')).show());
+document.getElementById('logoutBtn').addEventListener('click', ()=>{ localStorage.removeItem('tm_token'); toggleAuthUI(false); alert('Logged out'); });
+document.getElementById('addBtn').addEventListener('click', ()=>openAdd());
+document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+
+window.addEventListener('load', async ()=> {
+  applyTheme();
+  toggleAuthUI(!!localStorage.getItem('tm_token'));
+  await loadFromServer();
+});
+
+/* =========================
+   THEME
+   ========================= */
+function applyTheme(){ if(localStorage.getItem('tm_theme')==='dark'){ document.documentElement.setAttribute('data-theme','dark'); document.getElementById('themeToggle').innerText='Light'; } else { document.documentElement.removeAttribute('data-theme'); document.getElementById('themeToggle').innerText='Dark'; } }
+function toggleTheme(){ if(document.documentElement.getAttribute('data-theme')==='dark'){ localStorage.removeItem('tm_theme'); } else { localStorage.setItem('tm_theme','dark'); } applyTheme(); }
+
+/* =========================
+   AUTH
+   ========================= */
+async function doLogin(e){
+  e.preventDefault();
+  const email = document.getElementById('loginEmail').value;
+  const password = document.getElementById('loginPass').value;
+  try {
+    const res = await fetch(API_BASE + '/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email,password})});
+    if(!res.ok) throw new Error('Invalid credentials');
+    const data = await res.json();
+    localStorage.setItem('tm_token', data.token);
+    toggleAuthUI(true);
+    bootstrap.Modal.getInstance(document.getElementById('loginModal')).hide();
+    await loadFromServer();
+    alert('Logged in');
+  } catch(err) {
+    alert('Login failed: ' + err.message);
+  }
+}
+
+function toggleAuthUI(logged){
+  document.getElementById('loginBtn').classList.toggle('d-none', logged);
+  document.getElementById('logoutBtn').classList.toggle('d-none', !logged);
+}
+
+/* =========================
+   LOAD & RENDER
+   ========================= */
+async function loadFromServer(){
+  try {
+    const res = await authFetch('/tickets');
+    if (res.status === 401) { toggleAuthUI(false); return; }
+    tickets = await res.json();
+    buildFilters();
+    render();
+    refreshCharts();
+  } catch(e){
+    console.error(e);
+    alert('Could not load tickets: ' + e.message);
+  }
+}
+
+function buildFilters(){
+  const engineers = Array.from(new Set(tickets.map(t=>t.engineer).filter(Boolean)));
+  const sel = document.getElementById('filterEngineer');
+  sel.innerHTML = '<option value="">All Engineers</option>' + engineers.map(en=>`<option>${escapeHtml(en)}</option>`).join('');
+}
+
+function render(){
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  let rows = tickets.slice();
+
+  // filters
+  const feng = document.getElementById('filterEngineer').value;
+  const fstatus = document.getElementById('filterStatus').value;
+  if (feng) rows = rows.filter(r=> (r.engineer||'').toLowerCase() === feng.toLowerCase());
+  if (fstatus) rows = rows.filter(r=> (r.status||'').toLowerCase() === fstatus.toLowerCase());
+
+  // search
+  if (q) rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
+
+  // sort
+  if (sortField) {
+    rows.sort((a,b)=> {
+      const A = (a[sortField]||'').toString().toLowerCase();
+      const B = (b[sortField]||'').toString().toLowerCase();
+      return A > B ? sortDir : (A < B ? -sortDir : 0);
+    });
+  }
+
+  // pagination
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  currentPage = Math.min(currentPage, pages);
+  const start = (currentPage - 1) * pageSize;
+  const pageRows = rows.slice(start, start + pageSize);
+
+  // table
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = pageRows.map((t, idx) => `
+    <tr>
+      <td>${start + idx + 1}</td>
+      <td>${t.reqDate || ''}</td>
+      <td>${escapeHtml(t.ticketId)}</td>
+      <td>${escapeHtml(t.userName)}</td>
+      <td>${escapeHtml(t.issue)}</td>
+      <td>${escapeHtml(t.engineer)}</td>
+      <td>${escapeHtml(t.status)}</td>
+      <td>
+        <button class="btn btn-sm btn-warning" onclick="openEdit(${start + idx})">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteTicket(${start + idx})">Delete</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="8" class="text-center muted">No tickets</td></tr>';
+
+  // pagination ui
+  const pag = document.getElementById('pagination');
+  pag.innerHTML = '';
+  for (let p=1;p<=pages;p++){
+    pag.innerHTML += `<li class="page-item ${p===currentPage?'active':''}"><a class="page-link" href="#" onclick="goPage(${p});return false;">${p}</a></li>`;
+  }
+
+  // counts
+  updateCounts();
+}
+
+function goPage(p){ currentPage = p; render(); }
+
+function updateCounts(){
+  const totals = {'In-Progress':0,'On-Hold':0,'Resolved':0,'Forward':0,'Completed':0};
+  tickets.forEach(t=> totals[t.status] = (totals[t.status]||0) + 1);
+  document.getElementById('totalCount').innerText = tickets.length;
+  document.getElementById('countInProgress').innerText = totals['In-Progress']||0;
+  document.getElementById('countOnHold').innerText = totals['On-Hold']||0;
+  document.getElementById('countResolved').innerText = totals['Resolved']||0;
+  document.getElementById('countForward').innerText = totals['Forward']||0;
+  document.getElementById('countCompleted').innerText = totals['Completed']||0;
+}
+
+/* =========================
+   SORT
+   ========================= */
+function sortBy(field){
+  if (sortField === field) sortDir = -sortDir;
+  else { sortField = field; sortDir = 1; }
+  render();
+}
+
+/* =========================
+   CHARTS
+   ========================= */
+function refreshCharts(){
+  const statusCount = {};
+  const engCount = {};
+  tickets.forEach(t=>{
+    statusCount[t.status] = (statusCount[t.status]||0) + 1;
+    engCount[t.engineer] = (engCount[t.engineer]||0) + 1;
+  });
+
+  if (statusChart) statusChart.destroy();
+  if (engineerChart) engineerChart.destroy();
+
+  const sc = document.getElementById('statusChart').getContext('2d');
+  statusChart = new Chart(sc, {
+    type:'pie',
+    data:{ labels:Object.keys(statusCount), datasets:[{ data:Object.values(statusCount) }] },
+    options:{ plugins:{legend:{position:'bottom'}}}
+  });
+
+  const ec = document.getElementById('engineerChart').getContext('2d');
+  engineerChart = new Chart(ec, {
+    type:'bar',
+    data:{ labels:Object.keys(engCount), datasets:[{ label:'Tickets', data:Object.values(engCount) }] },
+    options:{ scales:{ y:{ beginAtZero:true } }, plugins:{ legend:{ display:false } } }
+  });
+}
+
+/* =========================
+   CRUD
+   ========================= */
+function openAdd(){
+  document.getElementById('ticketModalTitle').innerText = 'Add Ticket';
+  document.getElementById('ticketForm').reset();
+  document.getElementById('editId').value = '';
+  new bootstrap.Modal(document.getElementById('ticketModal')).show();
+}
+
+function openEdit(visibleIndex){
+  // visibleIndex corresponds to the currently visible page's index (start + idx)
+  const globalIndex = visibleIndex;
+  const t = getRowByVisibleIndex(globalIndex);
+  if (!t) return alert('Row not found');
+  document.getElementById('ticketModalTitle').innerText = 'Edit Ticket';
+  document.getElementById('editId').value = t.id;
+  document.getElementById('reqDate').value = t.reqDate || '';
+  document.getElementById('ticketId').value = t.ticketId || '';
+  document.getElementById('userName').value = t.userName || '';
+  document.getElementById('issue').value = t.issue || '';
+  document.getElementById('engineer').value = t.engineer || '';
+  document.getElementById('status').value = t.status || '';
+  new bootstrap.Modal(document.getElementById('ticketModal')).show();
+}
+
+function getRowByVisibleIndex(idx){
+  // Because render shows start + idx #s, compute record id via current filter+sort order
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  let rows = tickets.slice();
+  const feng = document.getElementById('filterEngineer').value;
+  const fstatus = document.getElementById('filterStatus').value;
+  if (feng) rows = rows.filter(r=> (r.engineer||'').toLowerCase() === feng.toLowerCase());
+  if (fstatus) rows = rows.filter(r=> (r.status||'').toLowerCase() === fstatus.toLowerCase());
+  if (q) rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
+  if (sortField) rows.sort((a,b)=> { const A=(a[sortField]||'').toString().toLowerCase(); const B=(b[sortField]||'').toString().toLowerCase(); return A>B?sortDir:(A<B?-sortDir:0); });
+  return rows[idx];
+}
+
+async function saveTicket(e){
+  e.preventDefault();
+  const id = document.getElementById('editId').value;
+  const payload = {
+    reqDate: document.getElementById('reqDate').value,
+    ticketId: document.getElementById('ticketId').value,
+    userName: document.getElementById('userName').value,
+    issue: document.getElementById('issue').value,
+    engineer: document.getElementById('engineer').value,
+    status: document.getElementById('status').value
+  };
+  try {
+    if (!localStorage.getItem('tm_token')) return alert('Please login first');
+    if (!id) {
+      const res = await authFetch('/tickets', { method:'POST', body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error(await res.text());
+      const saved = await res.json();
+      tickets.unshift(saved);
+    } else {
+      const res = await authFetch('/tickets/' + id, { method:'PUT', body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error(await res.text());
+      const updated = await res.json();
+      // replace in tickets
+      tickets = tickets.map(t => t.id === updated.id ? updated : t);
+    }
+    bootstrap.Modal.getInstance(document.getElementById('ticketModal')).hide();
+    buildFilters();
+    render();
+    refreshCharts();
+  } catch(err){
+    alert('Save failed: ' + err.message);
+  }
+}
+
+async function deleteTicket(visibleIndex){
+  if (!confirm('Delete this ticket?')) return;
+  const t = getRowByVisibleIndex(visibleIndex);
+  if (!t) return alert('Row not found');
+  try {
+    const res = await authFetch('/tickets/' + t.id, { method:'DELETE' });
+    if (!res.ok && res.status !== 204) throw new Error(await res.text());
+    tickets = tickets.filter(x=> x.id !== t.id);
+    render();
+    refreshCharts();
+  } catch(err){
+    alert('Delete failed: ' + err.message);
+  }
+}
+
+/* =========================
+   EXPORT
+   ========================= */
+function exportExcel(){
+  const rows = tickets.map(t=>({
+    'Request Date': t.reqDate,
+    'Ticket ID': t.ticketId,
+    'User': t.userName,
+    'Issue': t.issue,
+    'Engineer': t.engineer,
+    'Status': t.status
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Tickets');
+  XLSX.writeFile(wb, 'tickets.xlsx');
+}
+
+async function exportPDF(){
+  const el = document.querySelector('.table-wrap');
+  const canvas = await html2canvas(el, { scale:2 });
+  const img = canvas.toDataURL('image/png');
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF('l', 'pt', 'a4');
+  const pdfW = pdf.internal.pageSize.getWidth();
+  const pdfH = (canvas.height * pdfW) / canvas.width;
+  pdf.addImage(img, 'PNG', 0, 0, pdfW, pdfH);
+  pdf.save('tickets.pdf');
+}
+
+/* =========================
+   HELPERS
+   ========================= */
+function escapeHtml(s){ return String(s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+function clearFilters(){ document.getElementById('search').value=''; document.getElementById('filterEngineer').value=''; document.getElementById('filterStatus').value=''; render(); }
+
+/* =========================
+   REFRESH / misc
+   ========================= */
+async function refresh(){
+  await loadFromServer();
+  alert('Refreshed');
+}
+
+</script>
+</body>
+</html>
