@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Ticket Management Backend - Spring Boot
 
 This project is a ready-to-run Spring Boot backend for the Ticket Management system. It includes:
@@ -43,3 +44,7 @@ After the app starts (default http://localhost:8080), open:
 - eng1@demo.com / password (ROLE_ENGINEER)
 - viewer@demo.com / password (ROLE_VIEWER)
 
+=======
+# ticketmanagement
+ticketmanagement
+>>>>>>> d46cfe2e7f004ed402cba8ce76370015671ffa9c
